@@ -6,7 +6,7 @@ import {
 } from "./authSlice";
 import toast from "react-hot-toast";
 
-const API_BASE_URL = "http://localhost:5000/api/auth";
+const API_BASE_URL = "https://averycare-full.onrender.com";
 
 // 🔹 Signup Worker
 function* signupWorker(action) {
@@ -90,4 +90,5 @@ export default function* authSaga() {
   yield takeLatest(signupRequest.type, signupWorker);
   yield takeLatest(loginRequest.type, loginWorker);
   yield takeLatest(verifyOtpRequest.type, verifyOtpWorker);
+
 }
