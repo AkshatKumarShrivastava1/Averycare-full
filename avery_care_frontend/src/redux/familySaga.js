@@ -17,7 +17,7 @@ import {
 import toast from "react-hot-toast";
 
 const selectAuthToken = (state) => state.auth.user?.token;
-const API_BASE_URL = "https://averycare-full.onrender.com";
+const API_BASE_URL = "https://averycare-full.onrender.com/api/family";
 
 // Fetch
 function* fetchFamilyMembersSaga(action) {
@@ -124,3 +124,4 @@ export default function* familySaga() {
     yield takeLatest(updateFamilyMemberRequest.type, updateFamilyMemberSaga);
 
 }
+
