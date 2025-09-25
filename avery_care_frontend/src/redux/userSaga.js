@@ -34,7 +34,7 @@ import {
 import { getAdminToken } from "../utils/adminAuth";
 
 // ✨ CHANGE 2: Define a common base URL for the admin API
-const API_BASE_URL = "https://averycare-full.onrender.com";
+const API_BASE_URL = "https://averycare-full.onrender.com/api/admin";
 
 function* fetchUsersSaga(action) {
     try {
@@ -247,3 +247,4 @@ export default function* usersRootSaga() {
     yield takeLatest(deleteScheduledCallRequest.type, deleteScheduledCallSaga);
 
 }
+
