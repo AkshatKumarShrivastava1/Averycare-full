@@ -16,7 +16,7 @@ import {
   deleteScheduledCallFailure,
 } from "./callSlice";
 
-const API_BASE_URL = "http://localhost:5000/api/calls";
+const API_BASE_URL = "https://averycare-full.onrender.com";
 
 function* getAuthToken() {
   const token = localStorage.getItem("token");
@@ -171,5 +171,6 @@ function* watchCallSagas() {
   yield takeLatest(updateScheduledCallRequest.type, updateScheduledCallSaga);
   yield takeLatest(deleteScheduledCallRequest.type, deleteScheduledCallSaga);
 }
+
 
 export { watchCallSagas };
