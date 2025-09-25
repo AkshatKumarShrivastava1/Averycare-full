@@ -1,0 +1,19 @@
+# Node
+node_modules/
+echo "src/twiliohealthcarebackend-firebase-adminsdk-*.json" >> .gitignore
+
+.env
+
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Frontend & Backend builds
+backend/dist/
