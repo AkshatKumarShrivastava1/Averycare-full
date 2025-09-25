@@ -23,7 +23,7 @@ function* loginAdminSaga(action) {
     // API call
     const res = yield call(
       axios.post,
-      "https://averycare-full.onrender.com",
+      "https://averycare-full.onrender.com/api/auth/login",
       { email, password }
     );
 
@@ -66,3 +66,4 @@ export default function* adminSaga() {
   yield takeLatest(adminLoginRequest.type, loginAdminSaga);
 
 }
+
