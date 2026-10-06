@@ -1,20 +1,21 @@
 import { twiml } from 'twilio';
-import { GoogleGenerativeAI } from '@Google Calendar/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import twilioClient from '../config/twilio.js';
 // --- Initialization ---
 if (!process.env.GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is not set in the .env file.');
 }
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+const geminiModel = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    generationConfig: {
+        maxOutputTokens: 70,
+        temperature: 0.7,
+    },
+    systemInstruction: "You are a friendly and caring health assistant AI of Avery Care on a live phone call. Check in warmly on the user's health and well-being. Never provide medical advice. Keep your response strictly under 2 short conversational sentences (maximum 30 words) so it is clear and quick to speak over the phone."
+});
 const conversationHistories = new Map();
-const systemInstruction = {
-    role: "system",
-    parts: [{
-        text: "You are a friendly and health assistant AI of Avery Care. Your purpose is to check in on a user, ask about their general health and well-being, and provide helpful, supportive information. Do provide medical advice. Keep your responses short, suitable for a phone call."
-    }],
-};
-// --- Helper Function ---
+
 function getOrCreateConversationHistory(callSid) {
     if (!conversationHistories.has(callSid)) {
         conversationHistories.set(callSid, []);
@@ -40,7 +41,6 @@ const startConversation = async (callSid) => {
     const history = getOrCreateConversationHistory(callSid);
     const chat = geminiModel.startChat({
         history,
-        systemInstruction,
     });
     const result = await chat.sendMessage("Start the conversation by introducing yourself and asking me how I'm doing.");
     const aiResponse = result.response.text();
@@ -64,7 +64,6 @@ const continueConversation = async (callSid, userInput) => {
         history.push({ role: 'user', parts: [{ text: userInput }] });
         const chat = geminiModel.startChat({
             history,
-            systemInstruction,
         });
         const result = await chat.sendMessage(userInput);
         const aiResponse = result.response.text();

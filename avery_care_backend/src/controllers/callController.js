@@ -15,21 +15,77 @@ if (!process.env.GEMINI_API_KEY) {
 import { isValidObjectId } from '../utils/validationUtils.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+const geminiVoiceModel = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    generationConfig: {
+        maxOutputTokens: 70,
+        temperature: 0.7,
+    },
+    systemInstruction: "You are a friendly and caring health assistant AI of Avery Care on a live phone call. Check in warmly on the user's health and well-being. Never provide medical advice. Keep your response strictly under 2 short conversational sentences (maximum 30 words) so it is clear and quick to speak over the phone."
+});
+
+const geminiSummarizerModel = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    generationConfig: {
+        maxOutputTokens: 250,
+        temperature: 0.4,
+    },
+    systemInstruction: "You are a friendly health assistant summarizer. Summarize the conversation in 2-3 concise sentences. Be empathetic, avoid medical advice."
+});
+
 const conversationHistories = new Map();
 
-const systemInstruction = {
-    role: "system",
-    parts: [{
-        text: "You are a friendly and health assistant AI of Avery Care. Your purpose is to check in on a user, ask about their general health and well-being, and provide helpful, supportive information. Do not provide medical advice. Keep your responses short, suitable for a phone call."
-    }],
-};
-
-function getOrCreateConversationHistory(callSid) {
-    if (!conversationHistories.has(callSid)) {
-        conversationHistories.set(callSid, []);
+async function getOrCreateConversationHistory(callSid, callId) {
+    if (callSid && conversationHistories.has(callSid)) {
+        return conversationHistories.get(callSid);
     }
-    return conversationHistories.get(callSid);
+    // Restore from database if callId is available (e.g. server reload)
+    if (callId && isValidObjectId(callId)) {
+        try {
+            const callDoc = await ScheduledCall.findById(callId).select('transcript');
+            if (callDoc && callDoc.transcript && callDoc.transcript.length > 0) {
+                const restored = [];
+                for (const item of callDoc.transcript) {
+                    const role = item.role === 'assistant' ? 'model' : 'user';
+                    // Multi-turn chat must start with user turn
+                    if (restored.length === 0 && role !== 'user') {
+                        continue;
+                    }
+                    if (restored.length > 0 && restored[restored.length - 1].role === role) {
+                        restored[restored.length - 1].parts[0].text += ` ${item.message}`;
+                    } else {
+                        restored.push({
+                            role: role,
+                            parts: [{ text: item.message }]
+                        });
+                    }
+                }
+                if (callSid) conversationHistories.set(callSid, restored);
+                return restored;
+            }
+        } catch (dbErr) {
+            console.error('Failed to restore conversation history from DB:', dbErr.message);
+        }
+    }
+    const empty = [];
+    if (callSid) conversationHistories.set(callSid, empty);
+    return empty;
+}
+
+async function getFastGeminiReply(chat, prompt, fallbackText) {
+    try {
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('GEMINI_TIMEOUT')), 7000)
+        );
+        const result = await Promise.race([
+            chat.sendMessage(prompt),
+            timeoutPromise
+        ]);
+        return result.response.text();
+    } catch (err) {
+        console.error('Gemini call failed or timed out:', err.message);
+        return fallbackText;
+    }
 }
 
 export const triggerCall = async (phoneNumber, callId) => {
@@ -41,17 +97,17 @@ export const triggerCall = async (phoneNumber, callId) => {
             });
         }
         console.log(`Controller: triggerCall function shuru. Phone number: ${phoneNumber}, Call ID: ${callId}`);
-        const voiceUrl = `${process.env.PUBLIC_URL}/api/calls/voice?callId=${callId}`;
-        const statusCallbackUrl = `${process.env.PUBLIC_URL}/api/calls/status`;
+        const publicUrl = (process.env.PUBLIC_URL || '').trim();
+        const fromNumber = (process.env.TWILIO_PHONE_NUMBER || '').trim();
+        const voiceUrl = `${publicUrl}/api/calls/voice?callId=${callId}`;
+        const statusCallbackUrl = `${publicUrl}/api/calls/status`;
         console.log(`Controller: Twilio call jaa rahi hai. Webhook URL: ${voiceUrl}, Status Callback: ${statusCallbackUrl}`);
 
         const call = await twilioClient.calls.create({
             url: voiceUrl,
             to: phoneNumber,
-            from: process.env.TWILIO_PHONE_NUMBER,
+            from: fromNumber,
             statusCallback: statusCallbackUrl,
-            statusCallbackEvent: ['answered', 'completed', 'failed', 'no-answer'],
-            statusCallbackMethod: 'POST',
         });
 
         console.log(`Controller: Twilio call shuru ho gayi. SID: ${call.sid}`);
@@ -90,47 +146,73 @@ export const handleVoice = async (req, res) => {
     const twimlResponse = new twiml.VoiceResponse();
     const callSid = req.body.CallSid;
     const callId = req.query.callId;
+    const publicUrl = (process.env.PUBLIC_URL || '').trim();
 
     try {
         console.log(`Controller: handleVoice webhook hit. Call SID: ${callSid}, Call ID: ${callId}`);
-        const history = getOrCreateConversationHistory(callSid);
+        const history = await getOrCreateConversationHistory(callSid, callId);
 
-        const chat = geminiModel.startChat({
-            history: history,
-            systemInstruction: systemInstruction,
-        });
+        const chat = geminiVoiceModel.startChat({ history });
 
         console.log("Controller: Gemini se pehla message generate kar rahe hain...");
-        const result = await chat.sendMessage("Start the conversation by introducing yourself and asking me how I'm doing.");
-        const aiResponse = result.response.text();
+        const aiResponse = await getFastGeminiReply(
+            chat,
+            "Start the conversation by introducing yourself as Avery Care assistant and asking how I am feeling today in one short sentence.",
+            "Hi there! I'm your Avery Care assistant. I'm just checking in to see how you're doing today—how are you feeling?"
+        );
         console.log(`Controller: Gemini ka pehla sandesh: "${aiResponse}"`);
 
-        history.push({ role: 'model', parts: [{ text: aiResponse }] });
+        try {
+            const updatedHistory = await chat.getHistory();
+            if (callSid) conversationHistories.set(callSid, updatedHistory);
+        } catch (hErr) {
+            console.warn('Could not update history from chat session:', hErr.message);
+        }
 
-        if (callId) {
+        if (callId && isValidObjectId(callId)) {
             await ScheduledCall.findByIdAndUpdate(callId, {
                 $push: { transcript: { role: 'assistant', message: aiResponse } }
-            });
+            }).catch(e => console.error('DB update error in handleVoice:', e.message));
             console.log(`Controller: Database mein AI ka pehla message store hua.`);
         }
 
         const gather = twimlResponse.gather({
             input: 'speech',
+            timeout: 5,
             speechTimeout: 'auto',
-            action: `/api/calls/handle-speech?callId=${callId}`,
+            action: `${publicUrl}/api/calls/handle-speech?callId=${callId}`,
             method: 'POST',
         });
 
         gather.say({ voice: 'Polly.Joanna' }, aiResponse);
-        twimlResponse.redirect({ method: 'POST' }, `/api/calls/voice?callId=${callId}`);
 
-        res.type('text/xml');
-        res.send(twimlResponse.toString());
+        // If user didn't speak after greeting
+        twimlResponse.say({ voice: 'Polly.Joanna' }, "Are you still there? How are you feeling today?");
+        twimlResponse.gather({
+            input: 'speech',
+            timeout: 5,
+            speechTimeout: 'auto',
+            action: `${publicUrl}/api/calls/handle-speech?callId=${callId}`,
+            method: 'POST',
+        });
+        twimlResponse.say({ voice: 'Polly.Joanna' }, "I'll check in with you later. Take care and goodbye!");
+        twimlResponse.hangup();
+
+        res.type('text/xml').status(200).send(twimlResponse.toString());
     } catch (error) {
         console.error('Controller: handleVoice webhook mein ERROR:', error);
         const errorResponse = new twiml.VoiceResponse();
-        errorResponse.say({ voice: 'Polly.Joanna' }, 'Maaf kijiye, ek application error aa gayi hai. Goodbye.');
-        res.type('text/xml').status(500).send(errorResponse.toString());
+        const gather = errorResponse.gather({
+            input: 'speech',
+            timeout: 5,
+            speechTimeout: 'auto',
+            action: `${publicUrl}/api/calls/handle-speech?callId=${callId}`,
+            method: 'POST',
+        });
+        gather.say({ voice: 'Polly.Joanna' }, "Hi there! I am your Avery Care assistant. How are you feeling today?");
+        errorResponse.say({ voice: 'Polly.Joanna' }, "Take care and goodbye!");
+        errorResponse.hangup();
+        res.type('text/xml').status(200).send(errorResponse.toString());
     }
 };
 
@@ -139,66 +221,94 @@ export const handleSpeech = async (req, res) => {
     const callSid = req.body.CallSid;
     const userInput = req.body.SpeechResult;
     const callId = req.query.callId;
+    const publicUrl = (process.env.PUBLIC_URL || '').trim();
 
     try {
         console.log(`Controller: handleSpeech webhook hit. Call SID: ${callSid}, User input: "${userInput}", Call ID: ${callId}`);
-        const history = getOrCreateConversationHistory(callSid);
+        const history = await getOrCreateConversationHistory(callSid, callId);
 
-        if (userInput && callId) {
+        if (userInput && callId && isValidObjectId(callId)) {
             await ScheduledCall.findByIdAndUpdate(callId, {
                 $push: { transcript: { role: 'user', message: userInput } }
-            });
+            }).catch(e => console.error('DB update error in handleSpeech:', e.message));
             console.log(`Controller: Database mein user ka message store hua.`);
         }
 
-        if (userInput) {
-            history.push({ role: 'user', parts: [{ text: userInput }] });
-
-            const chat = geminiModel.startChat({
-                history: history,
-                systemInstruction: systemInstruction,
-            });
+        if (userInput && userInput.trim().length > 0) {
+            const chat = geminiVoiceModel.startChat({ history });
 
             console.log("Controller: Gemini se user input ke liye jawab generate kar rahe hain...");
-            const result = await chat.sendMessage(userInput);
-            const aiResponse = result.response.text();
+            const aiResponse = await getFastGeminiReply(
+                chat,
+                userInput,
+                "I understand. Please take good rest and check in with your doctor if anything feels uncomfortable. Is there anything else on your mind?"
+            );
             console.log(`Controller: Gemini ka jawab: "${aiResponse}"`);
 
-            history.push({ role: 'model', parts: [{ text: aiResponse }] });
+            try {
+                const updatedHistory = await chat.getHistory();
+                if (callSid) conversationHistories.set(callSid, updatedHistory);
+            } catch (hErr) {
+                console.warn('Could not update history from chat session:', hErr.message);
+            }
 
-            if (callId) {
+            if (callId && isValidObjectId(callId)) {
                 await ScheduledCall.findByIdAndUpdate(callId, {
                     $push: { transcript: { role: 'assistant', message: aiResponse } }
-                });
+                }).catch(e => console.error('DB update error in handleSpeech:', e.message));
                 console.log(`Controller: Database mein AI ka jawab store hua.`);
             }
 
             const gather = twimlResponse.gather({
                 input: 'speech',
+                timeout: 5,
                 speechTimeout: 'auto',
-                action: `/api/calls/handle-speech?callId=${callId}`,
+                action: `${publicUrl}/api/calls/handle-speech?callId=${callId}`,
                 method: 'POST',
             });
 
             gather.say({ voice: 'Polly.Joanna' }, aiResponse);
-        } else {
-            console.log("Controller: User ne kuch nahi bola.");
-            twimlResponse.say({ voice: 'Polly.Joanna' }, "Maine theek se suna nahi. Kya aap dobara bol sakte hain?");
+
+            // If user stays silent after AI response
+            twimlResponse.say({ voice: 'Polly.Joanna' }, "Are you still there? I'm listening.");
             twimlResponse.gather({
                 input: 'speech',
+                timeout: 5,
                 speechTimeout: 'auto',
-                action: `/api/calls/handle-speech?callId=${callId}`,
+                action: `${publicUrl}/api/calls/handle-speech?callId=${callId}`,
                 method: 'POST',
             });
+            twimlResponse.say({ voice: 'Polly.Joanna' }, "Take care and have a wonderful day. Goodbye!");
+            twimlResponse.hangup();
+        } else {
+            console.log("Controller: User ne kuch nahi bola.");
+            const gather = twimlResponse.gather({
+                input: 'speech',
+                timeout: 5,
+                speechTimeout: 'auto',
+                action: `${publicUrl}/api/calls/handle-speech?callId=${callId}`,
+                method: 'POST',
+            });
+            gather.say({ voice: 'Polly.Joanna' }, "I didn't quite catch that. Could you please say that again?");
+            twimlResponse.say({ voice: 'Polly.Joanna' }, "Take care and goodbye!");
+            twimlResponse.hangup();
         }
 
-        res.type('text/xml');
-        res.send(twimlResponse.toString());
+        res.type('text/xml').status(200).send(twimlResponse.toString());
     } catch (error) {
         console.error('Controller: handleSpeech webhook mein ERROR:', error);
         const errorResponse = new twiml.VoiceResponse();
-        errorResponse.say({ voice: 'Polly.Joanna' }, 'Lagta hai kuch takneeki samasya aa gayi hai. Kripya baad mein prayas karein.');
-        res.type('text/xml').status(500).send(errorResponse.toString());
+        const gather = errorResponse.gather({
+            input: 'speech',
+            timeout: 5,
+            speechTimeout: 'auto',
+            action: `${publicUrl}/api/calls/handle-speech?callId=${callId}`,
+            method: 'POST',
+        });
+        gather.say({ voice: 'Polly.Joanna' }, "I had a brief connection delay. Could you please repeat what you said?");
+        errorResponse.say({ voice: 'Polly.Joanna' }, "Take care and goodbye!");
+        errorResponse.hangup();
+        res.type('text/xml').status(200).send(errorResponse.toString());
     }
 };
 
@@ -236,17 +346,9 @@ export const handleCallStatus = async (req, res) => {
                         .join("\n");
 
                     // 🔹 Step 3: Ask Gemini for summary
-                    const chat = geminiModel.startChat({
-                        history: [],
-                        systemInstruction: {
-                            role: "system",
-                            parts: [{
-                                text: "You are a friendly health assistant summarizer. Summarize the conversation in 3-4 sentences. Be empathetic, avoid medical advice."
-                            }]
-                        }
-                    });
-
-                    const result = await chat.sendMessage(`Here is the transcript of a call:\n\n${transcriptText}\n\nPlease summarize this call.`);
+                    const result = await geminiSummarizerModel.generateContent(
+                        `Here is the transcript of a call:\n\n${transcriptText}\n\nPlease summarize this call in 2-3 concise sentences.`
+                    );
                     const summary = result.response.text();
 
                     // 🔹 Step 4: Save summary into DB

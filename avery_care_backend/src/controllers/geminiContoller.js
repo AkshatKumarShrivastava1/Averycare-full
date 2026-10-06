@@ -17,7 +17,8 @@ function getOrCreateConversationHistory(sessionId) {
 const generateChatReply = async (req, res) => {
   const { message, history, sessionId } = req.body;
   const API_KEY = process.env.GEMINI_API_KEY;
-  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY}`;
+  const modelName = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`;
   const userId = req.user?._id; 
 
   if (!message) {

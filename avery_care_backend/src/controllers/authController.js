@@ -122,8 +122,30 @@ const registerUser = asyncHandler(async (req, res) => {
     </div>
   `;
 
-	await sendEmail(email, subject, "Your One Time Password is ", htmlContent);
-	await sendOtpSms(phoneNumber, mobileOtp);
+	console.log(`\n========================================`);
+	console.log(`[OTP GENERATED] Email: ${email} -> Email OTP: ${emailOtp}`);
+	console.log(`[OTP GENERATED] Phone: ${phoneNumber} -> Mobile OTP: ${mobileOtp}`);
+	console.log(`========================================\n`);
+
+	try {
+		await sendEmail(email, subject, "Your One Time Password is ", htmlContent);
+	} catch (emailErr) {
+		console.error(`Email sending failed: ${emailErr.message}`);
+		if (process.env.NODE_ENV !== 'development') {
+			throw emailErr;
+		}
+		console.warn(`[DEV MODE] Proceeding registration despite email failure. Use Email OTP: ${emailOtp}`);
+	}
+
+	try {
+		await sendOtpSms(phoneNumber, mobileOtp);
+	} catch (smsErr) {
+		console.error(`SMS sending failed: ${smsErr.message}`);
+		if (process.env.NODE_ENV !== 'development') {
+			throw smsErr;
+		}
+		console.warn(`[DEV MODE] Proceeding registration despite SMS failure. Use Mobile OTP: ${mobileOtp}`);
+	}
 
 	const user = await User.create({
 		name,

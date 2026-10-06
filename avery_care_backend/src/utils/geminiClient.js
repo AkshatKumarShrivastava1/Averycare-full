@@ -7,7 +7,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 export const getGeminiResponse = async (prompt) => {
     try {
         const model = genAI.getGenerativeModel({
-            model: 'gemini-1.5-flash-latest',
+            model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
             systemInstruction: 'You are a helpful health assistant. You must only answer questions related to health and well-being. If a user asks a question not related to health, politely decline and state that you are a health assistant.'
         });
 
