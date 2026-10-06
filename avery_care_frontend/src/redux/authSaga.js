@@ -6,7 +6,7 @@ import {
 } from "./authSlice";
 import toast from "react-hot-toast";
 
-const API_BASE_URL = "https://averycare-full-production.up.railway.app/api/auth";
+const API_BASE_URL = "http://localhost:5000/api/auth";
 
 // 🔹 Signup Worker
 function* signupWorker(action) {

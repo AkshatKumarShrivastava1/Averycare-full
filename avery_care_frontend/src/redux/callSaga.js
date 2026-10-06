@@ -16,7 +16,7 @@ import {
   deleteScheduledCallFailure,
 } from "./callSlice";
 
-const API_BASE_URL = "https://averycare-full-production.up.railway.app/api/calls";
+const API_BASE_URL = "http://localhost:5000/api/calls";
 
 function* getAuthToken() {
   const token = localStorage.getItem("token");

@@ -34,7 +34,7 @@ import {
 import { getAdminToken } from "../utils/adminAuth";
 
 // ✨ CHANGE 2: Define a common base URL for the admin API
-const API_BASE_URL = "https://averycare-full-production.up.railway.app/api/admin";
+const API_BASE_URL = "http://localhost:5000/api/admin";
 
 function* fetchUsersSaga(action) {
     try {

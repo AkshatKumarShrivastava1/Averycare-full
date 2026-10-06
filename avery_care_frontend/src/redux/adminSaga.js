@@ -23,7 +23,7 @@ function* loginAdminSaga(action) {
     // API call
     const res = yield call(
       axios.post,
-      "https://averycare-full-production.up.railway.app/api/auth/login",
+      "http://localhost:5000/api/auth/login",
       { email, password }
     );
 
