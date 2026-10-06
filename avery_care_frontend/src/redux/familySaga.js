@@ -17,7 +17,7 @@ import {
 import toast from "react-hot-toast";
 
 const selectAuthToken = (state) => state.auth.user?.token;
-const API_BASE_URL = "http://localhost:5000/api/family";
+const API_BASE_URL = "https://averycare-full-production.up.railway.app/api/family";
 
 // Fetch
 function* fetchFamilyMembersSaga(action) {
@@ -122,4 +122,7 @@ export default function* familySaga() {
     yield takeLatest(addFamilyMemberRequest.type, addFamilyMemberSaga);
     yield takeLatest(deleteFamilyMemberRequest.type, deleteFamilyMemberSaga);
     yield takeLatest(updateFamilyMemberRequest.type, updateFamilyMemberSaga);
+
 }
+
+

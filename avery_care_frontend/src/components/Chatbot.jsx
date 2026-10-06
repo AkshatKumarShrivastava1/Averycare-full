@@ -55,7 +55,7 @@ const Chatbot = () => {
     setInput('');
 
     try {
-      const response = await axios.post('http://localhost:5000/api/gemini/chat', {
+      const response = await axios.post('https://averycare-full-production.up.railway.app/api/gemini/chat', {
         message: input,
         history: apiHistory,
         sessionId: sessionId,
@@ -136,4 +136,6 @@ const Chatbot = () => {
   );
 };
 
+
 export default Chatbot;
+

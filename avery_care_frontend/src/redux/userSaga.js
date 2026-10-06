@@ -34,7 +34,7 @@ import {
 import { getAdminToken } from "../utils/adminAuth";
 
 // ✨ CHANGE 2: Define a common base URL for the admin API
-const API_BASE_URL = "http://localhost:5000/api/admin";
+const API_BASE_URL = "https://averycare-full-production.up.railway.app/api/admin";
 
 function* fetchUsersSaga(action) {
     try {
@@ -245,4 +245,7 @@ export default function* usersRootSaga() {
     yield takeLatest(deleteFamilyMemberRequest.type, deleteFamilyMemberSaga);
     yield takeLatest(fetchScheduledCallsRequest.type, fetchScheduledCallsSaga);
     yield takeLatest(deleteScheduledCallRequest.type, deleteScheduledCallSaga);
+
 }
+
+
